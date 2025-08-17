@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Jannat Pub and Bar - Billing System</title>
+<style>
+body { font-family: Arial, sans-serif; background:#f4f4f4; margin:0; }
+.container { max-width:1200px; margin:auto; background:#fff; padding:20px; }
+h1,h2 { text-align:center; margin:10px 0; }
+input,select,button { padding:8px; margin:5px; }
+table { width:100%; border-collapse: collapse; margin-top:20px; }
+table, th, td { border:1px solid #000; padding:8px; text-align:center; }
+.btn { padding:6px 12px; cursor:pointer; }
+.btn-primary { background:#4CAF50; color:white; border:none; }
+.btn-danger { background:#f44336; color:white; border:none; }
+.btn-info { background:#2196F3; color:white; border:none; }
+.btn-warning { background:#ff9800; color:white; border:none; }
+.section { border:1px solid #ccc; padding:15px; margin-top:20px; }
+.total { font-weight:bold; font-size:18px; margin-top:10px; }
+.bill-box { border:1px solid #000; padding:20px; margin-top:20px; }
+.input-group { display: flex; flex-wrap: wrap; align-items: center; }
+.message { margin: 10px; padding: 10px; border-radius: 4px; }
+.success { background: #d4edda; color: #155724; }
+.error { background: #f8d7da; color: #721c24; }
+@media print {
+  body * { visibility:hidden; }
+  .print-area, .print-area * { visibility:visible; }
+  .print-area { 
+    position:absolute; 
+    left:0; 
+    top:0; 
+    width:100%;
+    background:white;
+  }
+  .no-print { display:none !important; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Jannat Pub and Bar</h1>
+<h2>Stocks&Billing</h2>
+<!-- STOCK SECTION -->
+<div class="section">
+<h2>Stock Management</h2>
+<div class="input-group">
+  <input type="text" id="stockName" placeholder="Item Name" autofocus>
+  <input type="number" id="stockPrice" placeholder="Price" min="1" step="0.01">
+  <input type="number" id="stockQty" placeholder="Quantity" min="1">
+  <button id="addStockBtn" class="btn btn-primary">Add to Stock</button>
+</div>
+
+<div id="stockMessage" class="message"></div>
+
+<table id="stockTable">
+<tr><th>Item</th><th>Price (Rs.)</th><th>Qty</th><th>Action</th></tr>
+<!-- Stock items will appear here -->
+</table>
+</div>
+
+<!-- BILL SECTION -->
+<div class="section">
+<h2>Create Bill</h2>
+<input type="text" id="custName" placeholder="Customer Name">
+<input type="text" id="custPhone" placeholder="Phone"><br>
+
+<select id="billItem">
+  <option value="">--Select Item--</option>
+</select>
+<input type="number" id="billPrice" placeholder="Price" readonly>
+<input type="number" id="billQty" placeholder="Quantity" min="1">
+<button id="addBillItemBtn" class="btn btn-info">Add Item</button>
+
+<table id="billTable">
+<tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th><th>Action</th></tr>
+</table>
+<p class="total">Grand Total: Rs. <span id="grandTotal">0</span></p>
+<button id="confirmBillBtn" class="btn btn-primary">Confirm Bill</button>
+<button id="clearBillBtn" class="btn btn-danger">Clear Bill</button>
+</div>
+
+<!-- SAVED BILLS -->
+<div class="section">
+<h2>Saved Bills</h2>
+<div id="savedBills"></div>
+</div>
+</div>
+
+<script>
+// Sample initial stock with just one product (Beer)
+let stock = [
+  { name: "Beer", price: 300, qty: 100 }
+];
+
+// Load saved data or use sample data
+let savedStock = JSON.parse(localStorage.getItem("stock")) || [];
+if(savedStock && savedStock.length > 0) {
+  stock = savedStock;
+}
+
+let bills = JSON.parse(localStorage.getItem("bills")) || [];
+let currentBill = [];
+
+// ---------- STOCK FUNCTIONS ----------
+function renderStock() {
+  const table = document.getElementById("stockTable");
+  // Keep header row, remove others
+  while(table.rows.length > 1) {
+    table.deleteRow(1);
+  }
+  
+  // Add all stock items
+  stock.forEach((item, index) => {
+    const row = table.insertRow();
+    row.innerHTML = `
+      <td>${item.name}</td>
+      <td>${item.price}</td>
+      <td>${item.qty}</td>
+      <td>
+        <button class="btn btn-warning" onclick="editStock(${index})">Edit Qty</button>
+        <button class="btn btn-danger" onclick="deleteStock(${index})">Delete</button>
+      </td>
+    `;
+  });
+  
+  updateItemDropdown();
+  localStorage.setItem("stock", JSON.stringify(stock));
+}
+
+// Working Add to Stock function
+function addStock() {
+  const name = document.getElementById("stockName").value.trim();
+  const price = parseFloat(document.getElementById("stockPrice").value);
+  const qty = parseInt(document.getElementById("stockQty").value);
+  const messageEl = document.getElementById("stockMessage");
+
+  // Clear previous messages
+  messageEl.textContent = '';
+  messageEl.className = 'message';
+
+  // Validation
+  if (!name) {
+    showMessage("Please enter item name!", "error");
+    document.getElementById("stockName").focus();
+    return;
+  }
+  
+  if (isNaN(price) || price <= 0) {
+    showMessage("Please enter a valid price greater than 0!", "error");
+    document.getElementById("stockPrice").focus();
+    return;
+  }
+  
+  if (isNaN(qty) || qty <= 0) {
+    showMessage("Please enter a valid quantity greater than 0!", "error");
+    document.getElementById("stockQty").focus();
+    return;
+  }
+
+  // Check if item already exists
+  const existingItemIndex = stock.findIndex(item => item.name.toLowerCase() === name.toLowerCase());
+  
+  if(existingItemIndex !== -1) {
+    if(confirm(`${name} already exists. Do you want to update its quantity?`)) {
+      stock[existingItemIndex].qty += qty;
+      showMessage(`Quantity updated for ${name}. New quantity: ${stock[existingItemIndex].qty}`, "success");
+    }
+  } else {
+    // Add new item to stock
+    stock.push({ name, price, qty });
+    showMessage(`${name} added to stock successfully!`, "success");
+  }
+
+  // Reset form
+  document.getElementById("stockName").value = "";
+  document.getElementById("stockPrice").value = "";
+  document.getElementById("stockQty").value = "";
+  document.getElementById("stockName").focus();
+  
+  renderStock();
+}
+
+function editStock(index) {
+  const item = stock[index];
+  const newQty = prompt(`Enter new quantity for ${item.name}:`, item.qty);
+  
+  if(newQty !== null && newQty !== "") {
+    const parsedQty = parseInt(newQty);
+    if(!isNaN(parsedQty) && parsedQty >= 0) {
+      stock[index].qty = parsedQty;
+      showMessage(`Quantity updated for ${item.name} to ${parsedQty}`, "success");
+      renderStock();
+    } else {
+      showMessage("Please enter a valid quantity (number ≥ 0)", "error");
+    }
+  }
+}
+
+function deleteStock(index) {
+  if(confirm(`Are you sure you want to delete ${stock[index].name} from stock?`)) {
+    const deletedItem = stock.splice(index, 1)[0];
+    showMessage(`${deletedItem.name} has been deleted from stock`, "success");
+    renderStock();
+  }
+}
+
+function showMessage(message, type) {
+  const messageEl = document.getElementById("stockMessage");
+  messageEl.textContent = message;
+  messageEl.className = `message ${type}`;
+}
+
+function updateItemDropdown() {
+  const select = document.getElementById("billItem");
+  // Clear existing options except first
+  while(select.options.length > 1) {
+    select.remove(1);
+  }
+  
+  // Add available items
+  stock.forEach((item, index) => {
+    if(item.qty > 0) {
+      const option = new Option(`${item.name} (Rs.${item.price}, Stock:${item.qty})`, index);
+      select.add(option);
+    }
+  });
+}
+
+// ---------- BILL FUNCTIONS ----------
+function updatePrice() {
+  const selectedIndex = document.getElementById("billItem").value;
+  const priceInput = document.getElementById("billPrice");
+  
+  if(selectedIndex === "") {
+    priceInput.value = "";
+  } else {
+    priceInput.value = stock[selectedIndex].price;
+  }
+}
+
+function addToBill() {
+  const itemSelect = document.getElementById("billItem");
+  const qtyInput = document.getElementById("billQty");
+  const selectedIndex = itemSelect.value;
+  const qty = parseInt(qtyInput.value);
+
+  if(selectedIndex === "" || isNaN(qty) || qty <= 0) {
+    alert("Please select an item and enter valid quantity!");
+    return;
+  }
+
+  const selectedItem = stock[selectedIndex];
+  
+  if(qty > selectedItem.qty) {
+    alert(`Only ${selectedItem.qty} available in stock!`);
+    return;
+  }
+
+  // Check if item already in bill
+  const existingItem = currentBill.find(item => item.name === selectedItem.name);
+  
+  if(existingItem) {
+    const newQty = existingItem.qty + qty;
+    if(newQty > selectedItem.qty) {
+      alert(`Total quantity (${newQty}) exceeds available stock (${selectedItem.qty})!`);
+      return;
+    }
+    existingItem.qty = newQty;
+    existingItem.total = newQty * existingItem.price;
+  } else {
+    currentBill.push({
+      name: selectedItem.name,
+      price: selectedItem.price,
+      qty: qty,
+      total: selectedItem.price * qty
+    });
+  }
+
+  renderBill();
+  qtyInput.value = "";
+}
+
+function renderBill() {
+  const table = document.getElementById("billTable");
+  // Clear existing rows except header
+  while(table.rows.length > 1) {
+    table.deleteRow(1);
+  }
+  
+  let grandTotal = 0;
+  
+  currentBill.forEach((item, index) => {
+    const row = table.insertRow();
+    row.innerHTML = `
+      <td>${item.name}</td>
+      <td>${item.price}</td>
+      <td>${item.qty}</td>
+      <td>${item.total}</td>
+      <td><button class="btn btn-danger" onclick="removeBillItem(${index})">Remove</button></td>
+    `;
+    grandTotal += item.total;
+  });
+  
+  document.getElementById("grandTotal").innerText = grandTotal;
+}
+
+function removeBillItem(index) {
+  currentBill.splice(index, 1);
+  renderBill();
+}
+
+function confirmBill() {
+  if(currentBill.length === 0) {
+    alert("No items in bill!");
+    return;
+  }
+
+  const custName = document.getElementById("custName").value.trim();
+  if(!custName) {
+    alert("Please enter customer name!");
+    document.getElementById("custName").focus();
+    return;
+  }
+
+  // Update stock quantities
+  currentBill.forEach(billItem => {
+    const stockItem = stock.find(item => item.name === billItem.name);
+    if(stockItem) {
+      stockItem.qty -= billItem.qty;
+    }
+  });
+
+  // Create new bill
+  const newBill = {
+    customer: custName,
+    phone: document.getElementById("custPhone").value.trim(),
+    items: [...currentBill],
+    total: document.getElementById("grandTotal").innerText,
+    date: new Date().toLocaleString()
+  };
+
+  bills.push(newBill);
+  localStorage.setItem("bills", JSON.stringify(bills));
+  localStorage.setItem("stock", JSON.stringify(stock));
+
+  // Reset
+  currentBill = [];
+  document.getElementById("custName").value = "";
+  document.getElementById("custPhone").value = "";
+  renderBill();
+  renderStock();
+  renderSavedBills();
+  
+  alert("Bill saved successfully!\nStock quantities updated.");
+}
+
+function clearBill() {
+  currentBill = [];
+  document.getElementById("custName").value = "";
+  document.getElementById("custPhone").value = "";
+  renderBill();
+}
+
+// ---------- SAVED BILLS ----------
+function renderSavedBills() {
+  const div = document.getElementById("savedBills");
+  div.innerHTML = "";
+  
+  bills.forEach((bill, index) => {
+    const billBox = document.createElement("div");
+    billBox.className = "bill-box print-area";
+    billBox.innerHTML = `
+      <h3>Jannat Pub and Bar</h3>
+      <p><b>Address:</b>Birtamode,Sanchare road</p>
+      <p><b>Phone:</b> +977-9816982027</p>
+      <hr>
+      <p><b>Customer:</b> ${bill.customer} | <b>Phone:</b> ${bill.phone || '-'}</p>
+      <p><b>Date:</b> ${bill.date}</p>
+      <table>
+        <tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr>
+        ${bill.items.map(item => `
+          <tr>
+            <td>${item.name}</td>
+            <td>${item.price}</td>
+            <td>${item.qty}</td>
+            <td>${item.total}</td>
+          </tr>
+        `).join('')}
+      </table>
+      <p class="total">Grand Total: Rs. ${bill.total}</p>
+      <p>Thank you !</p>
+      <button class="btn btn-info no-print" onclick="printBill(${index})">Print</button>
+      <button class="btn btn-danger no-print" onclick="deleteBill(${index})">Delete</button>
+    `;
+    div.appendChild(billBox);
+  });
+}
+
+function deleteBill(index) {
+  if(confirm("Are you sure you want to delete this bill permanently?")) {
+    bills.splice(index, 1);
+    localStorage.setItem("bills", JSON.stringify(bills));
+    renderSavedBills();
+    showMessage("Bill deleted successfully", "success");
+  }
+}
+
+// Working print function
+function printBill(index) {
+  const printContent = document.getElementsByClassName("bill-box")[index].innerHTML;
+  const originalContent = document.body.innerHTML;
+  
+  document.body.innerHTML = printContent;
+  window.print();
+  document.body.innerHTML = originalContent;
+  
+  // Re-render to restore functionality
+  renderSavedBills();
+}
+
+// ---------- EVENT LISTENERS ----------
+document.getElementById("addStockBtn").addEventListener("click", addStock);
+document.getElementById("addBillItemBtn").addEventListener("click", addToBill);
+document.getElementById("billItem").addEventListener("change", updatePrice);
+document.getElementById("confirmBillBtn").addEventListener("click", confirmBill);
+document.getElementById("clearBillBtn").addEventListener("click", clearBill);
+
+// Keyboard navigation
+document.getElementById("stockName").addEventListener("keypress", function(e) {
+  if(e.key === "Enter") document.getElementById("stockPrice").focus();
+});
+document.getElementById("stockPrice").addEventListener("keypress", function(e) {
+  if(e.key === "Enter") document.getElementById("stockQty").focus();
+});
+document.getElementById("stockQty").addEventListener("keypress", function(e) {
+  if(e.key === "Enter") addStock();
+});
+
+// INITIAL RENDER
+renderStock();
+renderSavedBills();
+</script>
+</body>
+</html>
